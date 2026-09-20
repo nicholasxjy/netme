@@ -69,6 +69,7 @@ pub struct App {
     pub cursor: usize,
     pub confirm: bool,
     pub public_pending: bool,
+    public_queued: bool,
     pub ascii: bool,
     pub color: bool,
     pub interval: u64,
@@ -81,6 +82,7 @@ impl App {
             cursor: 0,
             confirm: false,
             public_pending: false,
+            public_queued: false,
             ascii: options.ascii,
             color: std::env::var_os("NO_COLOR").is_none()
                 && std::env::var("TERM").unwrap_or_default() != "dumb",
@@ -187,8 +189,17 @@ impl App {
                     "unavailable"
                 }
             })
-            .unwrap_or("—")
+            .unwrap_or("p: query")
             .into()
+    }
+    fn take_public_request(&mut self) -> Option<u64> {
+        // Generation zero is the placeholder before the first sampler result. A query
+        // tagged with it would be discarded as soon as the real network arrives.
+        if !self.public_queued || self.live.snapshot.generation == 0 {
+            return None;
+        }
+        self.public_queued = false;
+        Some(self.live.snapshot.generation)
     }
     fn clamp(&mut self) {
         self.cursor = self.cursor.min(self.interfaces().len().saturating_sub(1));
@@ -206,7 +217,7 @@ impl App {
                     self.confirm = false;
                     if !self.public_pending {
                         self.public_pending = true;
-                        return Action::Public;
+                        self.public_queued = true;
                     }
                 }
                 KeyCode::Esc | KeyCode::Char('n' | 'q') => self.confirm = false,
@@ -238,7 +249,6 @@ impl App {
 pub enum Action {
     None,
     Quit,
-    Public,
 }
 
 enum Reply {
@@ -372,20 +382,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Reply::PublicDone => app.public_pending = false,
             }
         }
+        if let Some(generation) = app.take_public_request() {
+            if workers.requests.try_send(generation).is_err() {
+                app.public_pending = false;
+            }
+        }
         terminal.draw(|f| ui::draw(f, &app))?;
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 match app.key(key) {
                     Action::Quit => break,
-                    Action::Public => {
-                        if workers
-                            .requests
-                            .try_send(app.live.snapshot.generation)
-                            .is_err()
-                        {
-                            app.public_pending = false;
-                        }
-                    }
                     Action::None => {}
                 }
             }
@@ -452,8 +458,45 @@ mod tests {
         app.key(key(KeyCode::Esc));
         assert!(!app.public_pending);
         app.key(key(KeyCode::Char('p')));
-        assert_eq!(app.key(key(KeyCode::Char('y'))), Action::Public);
+        assert_eq!(app.key(key(KeyCode::Char('y'))), Action::None);
+        assert!(app.public_pending);
+        assert_eq!(app.take_public_request(), Some(42));
+        assert_eq!(app.take_public_request(), None);
         assert_eq!(app.key(key(KeyCode::Char('q'))), Action::Quit);
+    }
+    #[test]
+    fn early_public_query_waits_for_the_first_network_snapshot() {
+        let mut app = App::new(Options {
+            interval: 1,
+            ascii: false,
+        });
+        assert_eq!(app.take_public_request(), None); // No startup traffic.
+        app.key(key(KeyCode::Char('p')));
+        app.key(key(KeyCode::Esc));
+        assert_eq!(app.take_public_request(), None); // Cancellation stays offline.
+        app.key(key(KeyCode::Char('p')));
+        app.key(key(KeyCode::Enter));
+        assert!(app.public_pending);
+        assert_eq!(app.take_public_request(), None); // Not generation zero.
+        assert_eq!(app.external_ip(), "…");
+        app.receive(Snapshot {
+            generation: 1,
+            ..Default::default()
+        });
+        let generation = app.take_public_request().unwrap();
+        assert_eq!(generation, 1);
+        assert_eq!(app.take_public_request(), None); // Dispatch only once.
+        app.live.probes[0] = Some(Probe {
+            at: std::time::Instant::now(),
+            generation,
+            via_proxy: true,
+            result: Ok("198.51.100.7".parse().unwrap()),
+        });
+        assert_eq!(app.external_ip(), "198.51.100.7"); // Visible before IPv6 finishes.
+        app.live.snapshot.generation = 2;
+        app.public_pending = false;
+        assert_eq!(app.external_ip(), "p: query"); // Never show a stale network result.
+        assert_eq!(app.take_public_request(), None); // No automatic retry.
     }
     #[test]
     fn public_result_source_pending_failure_and_stale_state() {
@@ -476,7 +519,7 @@ mod tests {
         assert_eq!(app.external_ip(), "proxy failed");
         assert_eq!(app.external_source(), None);
         app.live.snapshot.generation = 1;
-        assert_eq!(app.external_ip(), "—");
+        assert_eq!(app.external_ip(), "p: query");
     }
     #[test]
     fn default_path_is_not_a_sum_or_guessed_router() {
@@ -515,6 +558,6 @@ mod tests {
         assert_eq!(app.primary_interface().unwrap().name, "tun0");
         assert_eq!(app.internal_ip().as_deref(), Some("fd00::1"));
         assert_eq!(app.router_ip(), None);
-        assert_eq!(app.external_ip(), "—");
+        assert_eq!(app.external_ip(), "p: query");
     }
 }

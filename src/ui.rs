@@ -342,7 +342,7 @@ fn confirmation(f: &mut Frame, app: &App, area: Rect) {
         12,
     );
     f.render_widget(Clear, rect);
-    f.render_widget(Paragraph::new("HTTPS: api.ipify.org / api6.ipify.org\nThe service sees the queried egress IP.\nEnvironment proxy, then system proxy.\nDirect only if no proxy is configured.\nProxy failure never bypasses the proxy.\n5s/family; results cached for 60s.\n\ny / Enter: confirm\nn / Esc: cancel")
+    f.render_widget(Paragraph::new("HTTPS: api.ipify.org / api6.ipify.org\nThe service sees the queried egress IP.\nEnvironment proxy, then system proxy.\nDirect only if no proxy is configured.\nProxy failure never bypasses the proxy.\n5s/family; success cached for 60s.\n\ny / Enter: confirm\nn / Esc: cancel")
         .block(panel(app, " query External IP ", YELLOW)).wrap(Wrap { trim: false }), rect);
 }
 
@@ -459,6 +459,17 @@ mod tests {
             if width == 80 {
                 println!("{rendered}");
             }
+        }
+    }
+    #[test]
+    fn unqueried_and_changed_network_show_public_query_hint() {
+        for width in [44, 52, 72, 80, 120] {
+            let mut app = fixture();
+            app.live.probes = [None, None];
+            assert!(output(&render(&app, width, 24)).contains("p: query"));
+            let mut app = fixture();
+            app.live.snapshot.generation += 1;
+            assert!(output(&render(&app, width, 24)).contains("p: query"));
         }
     }
     #[test]
