@@ -1,70 +1,70 @@
 # netme
 
-macOS / Linux 网络监控 TUI。参考 btop：沿用终端背景、细线框分区、紧凑列对齐，下载蓝色、上传绿色。没有 GUI 填充卡片、模拟按钮或特殊字体要求。
+A network-monitoring TUI for macOS and Linux, inspired by btop: it uses the terminal background, thin borders, and compact, aligned columns, with blue for downloads and green for uploads. No filled GUI-style cards, simulated buttons, or special fonts are required.
 
-界面内容和监控功能保持不变：
+The interface content and monitoring features remain unchanged:
 
-- 顶部 **DOWNLOAD / UPLOAD**：默认出口实时速率。
-- **interfaces**：Ethernet Adapter、Thunderbolt、Wi-Fi 的下载 / 上传、链路带宽和类型 / 频段。
-- 底部 **Internal / Router / External**：本地地址、默认网关、公网出口；External 标明 `proxy` / `direct`。
+- Top **DOWNLOAD / UPLOAD**: real-time transfer rates for the default network route.
+- **interfaces**: download/upload rates, link bandwidth, and type/band for Ethernet Adapter, Thunderbolt, and Wi-Fi interfaces.
+- Bottom **Internal / Router / External**: local addresses, the default gateway, and public egress addresses; External indicates `proxy` or `direct`.
 
-不显示历史曲线、进程、socket 或额外诊断面板，不启动 `nettop` / `ss`。仅展示本机硬件接口，不写死设备或地址；回环、桥接、VPN 不列为硬件行。
+No historical charts, processes, sockets, or extra diagnostic panels are shown, and `nettop` / `ss` are never launched. Only local hardware interfaces are listed, with no hardcoded devices or addresses; loopback, bridge, and VPN interfaces are excluded from hardware rows.
 
-## 运行
+## Usage
 
 ```sh
 cargo install --path . --locked
 netme
-netme --interval 2   # 1–60 秒，默认 1 秒
-netme --ascii       # ASCII 字符和边框
-NO_COLOR=1 netme    # 无颜色
+netme --interval 2   # 1–60 seconds; default: 1 second
+netme --ascii       # ASCII characters and borders
+NO_COLOR=1 netme    # No colors
 netme --help
 ```
 
-建议 **80×24**：宽屏使用紧凑网卡表与横向网络路径；窄屏使用双行网卡与纵向路径。**72×24** 也可完整展示七个接口。最小 **44×16**；更矮的列表可滚动，IPv6 自动折行。布局利用终端宽度，不再模拟居中的 GUI 窗口。
+A terminal size of **80×24** is recommended: wide layouts use a compact interface table and a horizontal network path; narrow layouts use two-line interface rows and a vertical path. **72×24** can also display seven interfaces in full. The minimum size is **44×16**; shorter layouts support scrolling, and IPv6 addresses wrap automatically. The layout uses the terminal width rather than imitating a centered GUI window.
 
-Linux 需要 `iproute2`，Wi-Fi 链路信息可选 `iw`。macOS 使用系统自带网络工具；无需 sudo。
+Linux requires `iproute2`; `iw` is optional for Wi-Fi link information. macOS uses built-in networking tools. No sudo is required.
 
-| 按键 | 操作 |
+| Key | Action |
 | --- | --- |
-| `↑` / `↓`、`k` / `j` | 移动选择 / 滚动网卡 |
-| `Home` / `End`、`PageUp` / `PageDown` | 首尾 / 翻页 |
-| `Space` | 固定 / 恢复显示，边框显示 pinned；后台采样继续 |
-| `p` | 查询 External IP；`y` / Enter 确认，`n` / Esc 取消 |
-| `q` / `Ctrl-C` | 退出 |
+| `↑` / `↓`, `k` / `j` | Move the selection / scroll interfaces |
+| `Home` / `End`, `PageUp` / `PageDown` | Jump to the first or last interface / move by page |
+| `Space` | Freeze / resume the display; the border shows pinned while background sampling continues |
+| `p` | Query the External IP; confirm with `y` / Enter, cancel with `n` / Esc |
+| `q` / `Ctrl-C` | Quit |
 
-## 公网 IP 与代理
+## Public IP and Proxies
 
-保留确认查询：启动不访问公网，按 `p` 确认后通过 HTTPS 查询 `api.ipify.org` / `api6.ipify.org`。
+Public IP queries require confirmation: no public internet requests are made at startup. Press `p` and confirm to query `api.ipify.org` / `api6.ipify.org` over HTTPS.
 
-代理选择顺序：
+Proxy selection order:
 
-1. 第一个非空环境变量：`https_proxy`、`HTTPS_PROXY`、`all_proxy`、`ALL_PROXY`、`http_proxy`、`HTTP_PROXY`。
-2. 没有环境代理时，macOS 读取 `scutil --proxy` 的有效 HTTPS、HTTP、SOCKS 手动代理设置。
-3. **仅在没有代理配置时直连**。代理无效或请求失败时显示 `proxy failed`，不会暗中绕过代理暴露真实出口。PAC / 自动代理发现不能直接执行，需提供显式代理环境变量。
+1. The first nonempty environment variable: `https_proxy`, `HTTPS_PROXY`, `all_proxy`, `ALL_PROXY`, `http_proxy`, `HTTP_PROXY`.
+2. If no environment proxy is set, macOS reads the active manual HTTPS, HTTP, and SOCKS proxy settings from `scutil --proxy`.
+3. **Connect directly only when no proxy is configured.** An invalid proxy or a failed request displays `proxy failed`; the application never silently bypasses the proxy and exposes the direct egress address. PAC / automatic proxy discovery cannot be executed directly; provide an explicit proxy environment variable instead.
 
-支持 HTTP CONNECT 与 SOCKS 代理（`socks5h://` 使用远端 DNS）。例如：
+HTTP CONNECT and SOCKS proxies are supported (`socks5h://` uses remote DNS). For example:
 
 ```sh
 HTTPS_PROXY=http://127.0.0.1:7890 netme
 ALL_PROXY=socks5h://127.0.0.1:7890 netme
 ```
 
-- 查询的是代理 / 当前连接的公网出口，不是所有进程的公网 IP；已配置代理优先，不按 `NO_PROXY` 绕行。
-- 代理可以是 IPv4 地址，同时查询其 IPv6 出口；不会错误地把代理的地址族限制为被查询的地址族。
-- 保留 TLS 验证，禁用重定向，每次请求最多 5 秒，响应限制 64 字节并校验 IP 地址族。不在界面或错误消息中显示代理凭证。
-- 成功结果缓存 60 秒。网络代次或代理配置变化使缓存失效；失败不复用缓存，可按 `p` 再次确认立即重试，没有自动重试。IPv4 成功立即可见，不必等 IPv6 完成。
-- 未查询 / 网络变化后显示 `p: query`，查询中显示 `…`，失败显示 `proxy failed` / `unavailable`。启动后立即确认查询时，会先等待首份网络采样，避免把结果误判为旧网络数据。
+- Queries report the public egress address of the proxy / current connection, not the public IP of every process. Configured proxies take precedence; `NO_PROXY` is not used to bypass them.
+- A proxy with an IPv4 address can be used to query its IPv6 egress address; the proxy's address family is not incorrectly restricted to the family being queried.
+- TLS verification remains enabled, redirects are disabled, each request has a 5-second timeout, and responses are limited to 64 bytes with IP address family validation. Proxy credentials are never shown in the interface or error messages.
+- Successful results are cached for 60 seconds. Changes to the network generation or proxy configuration invalidate the cache. Failed queries do not reuse cached results; press `p` and confirm again to retry immediately. There are no automatic retries. IPv4 results appear as soon as they succeed, without waiting for IPv6.
+- Before a query or after a network change, the display shows `p: query`; while querying, it shows `…`; failures show `proxy failed` / `unavailable`. If a query is confirmed immediately after startup, it waits for the first network sample to avoid incorrectly treating the result as data from an old network.
 
-## 计量口径
+## Measurement Details
 
-- 网卡累计计数来自 `sysinfo`，以单调时钟的实际间隔计算速率。首次采样、计数重置、接口身份变化显示 `—`，不伪造零值。单位 B/s、KB/s、MB/s 使用十进制。
-- 顶部取 IPv4 默认出口，其次 IPv6 默认出口，再次在线硬件接口；不重复叠加物理网卡和隧道流量。
-- 链路带宽与 Wi-Fi 频段只使用系统报告值；断开接口显示 `0.00 b/s`，未知保持未知。元数据约 5 秒刷新，Wi-Fi 链路信息约 30 秒刷新，连接变化提前刷新。
-- Internal / Router 属于默认出口；不知道网关时不猜测。VPN 默认出口可能与可见硬件不同。
-- 采样与请求在工作线程运行，不阻塞界面。正常退出、错误、panic、SIGTERM/INT/HUP/QUIT 恢复终端；SIGKILL 无法清理。
+- Cumulative interface counters come from `sysinfo`; rates are calculated using the actual elapsed interval from a monotonic clock. The first sample, counter resets, and interface identity changes display `—` rather than fabricated zero values. B/s, KB/s, and MB/s use decimal units.
+- The top display uses the IPv4 default route, then the IPv6 default route, then an online hardware interface. Physical interface and tunnel traffic are not double-counted.
+- Link bandwidth and Wi-Fi bands use only system-reported values. Disconnected interfaces show `0.00 b/s`; unknown values remain unknown. Metadata refreshes approximately every 5 seconds, and Wi-Fi link information approximately every 30 seconds, with earlier refreshes when connectivity changes.
+- Internal / Router values correspond to the default route; unknown gateways are not guessed. A VPN default route may differ from the visible hardware interfaces.
+- Sampling and requests run on worker threads without blocking the interface. The terminal is restored on normal exit, errors, panics, and SIGTERM/INT/HUP/QUIT; cleanup is not possible after SIGKILL.
 
-## 验证
+## Validation
 
 ```sh
 cargo fmt --check
@@ -73,10 +73,10 @@ cargo test --locked
 cargo test --locked live_loopback_smoke -- --ignored --nocapture
 cargo build --locked
 python3 tests/tty_smoke.py target/debug/netme
-# 可选：真实代理 HTTPS 查询，会联系 ipify（不打印返回的 IP）
+# Optional: live HTTPS query through a proxy; contacts ipify without printing the returned IP
 cargo test --locked live_public_ip_proxy_smoke -- --ignored --nocapture
 ```
 
-默认测试不访问公网；代理测试使用本地模拟 CONNECT 服务，验证 IPv4 代理承载 IPv6 查询、没有目标 DNS 请求、失败不回退直连、错误不泄露凭证。布局测试覆盖线框与无填充背景、所有原有字段、紧凑 / 宽屏、滚动、ASCII / NO_COLOR、IPv6 和确认弹窗。
+The default tests do not access the public internet. Proxy tests use a local mock CONNECT service to verify IPv6 queries through an IPv4 proxy, no DNS requests for the target, no direct-connection fallback on failure, and no credential leaks in errors. Layout tests cover thin borders and an unfilled background, all existing fields, compact / wide layouts, scrolling, ASCII / NO_COLOR, IPv6, and the confirmation dialog.
 
-本地实际结果见 [VALIDATION.md](VALIDATION.md)。
+See [VALIDATION.md](VALIDATION.md) for actual local validation results.
