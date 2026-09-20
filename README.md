@@ -10,20 +10,53 @@ The interface content and monitoring features remain unchanged:
 
 No historical charts, processes, sockets, or extra diagnostic panels are shown, and `nettop` / `ss` are never launched. Only local hardware interfaces are listed, with no hardcoded devices or addresses; loopback, bridge, and VPN interfaces are excluded from hardware rows.
 
-## Usage
+## Installation
+
+### From crates.io (recommended)
+
+Install [Rust and Cargo](https://rustup.rs/), then install the latest release of [netme from crates.io](https://crates.io/crates/netme):
 
 ```sh
+cargo install netme --locked
+```
+
+To install version **0.0.1** specifically:
+
+```sh
+cargo install netme --version 0.0.1 --locked
+```
+
+Cargo installs the executable to `~/.cargo/bin` by default. Make sure this directory, or the `bin` directory of your custom Cargo installation root, is on your `PATH`. Verify the installation with:
+
+```sh
+netme --version
+```
+
+Linux requires `iproute2`; `iw` is optional for Wi-Fi link information. macOS uses built-in networking tools. Running netme does not require sudo.
+
+### From source
+
+Alternatively, clone the repository and install from the local checkout:
+
+```sh
+git clone https://github.com/nicholasxjy/netme.git
+cd netme
 cargo install --path . --locked
-netme
-netme --interval 2   # 1–60 seconds; default: 1 second
-netme --ascii       # ASCII characters and borders
-NO_COLOR=1 netme    # No colors
+```
+
+## Usage
+
+Run netme in an interactive terminal on macOS or Linux:
+
+```sh
+netme              # Start monitoring with a 1-second refresh interval
+netme --interval 2 # 1–60 seconds; default: 1 second
+netme --ascii      # ASCII characters and borders
+NO_COLOR=1 netme   # No colors
 netme --help
 ```
 
 A terminal size of **80×24** is recommended: wide layouts use a compact interface table and a horizontal network path; narrow layouts use two-line interface rows and a vertical path. **72×24** can also display seven interfaces in full. The minimum size is **44×16**; shorter layouts support scrolling, and IPv6 addresses wrap automatically. The layout uses the terminal width rather than imitating a centered GUI window.
-
-Linux requires `iproute2`; `iw` is optional for Wi-Fi link information. macOS uses built-in networking tools. No sudo is required.
 
 | Key | Action |
 | --- | --- |
@@ -80,3 +113,7 @@ cargo test --locked live_public_ip_proxy_smoke -- --ignored --nocapture
 The default tests do not access the public internet. Proxy tests use a local mock CONNECT service to verify IPv6 queries through an IPv4 proxy, no DNS requests for the target, no direct-connection fallback on failure, and no credential leaks in errors. Layout tests cover thin borders and an unfilled background, all existing fields, compact / wide layouts, scrolling, ASCII / NO_COLOR, IPv6, and the confirmation dialog.
 
 See [VALIDATION.md](VALIDATION.md) for actual local validation results.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
