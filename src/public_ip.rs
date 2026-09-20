@@ -47,7 +47,10 @@ impl Cache {
         request: impl FnOnce(usize) -> Result<IpAddr, String>,
     ) -> Probe {
         if let Some(probe) = &self.entries[family] {
-            if probe.generation == generation && probe.at.elapsed() < Duration::from_secs(60) {
+            if probe.result.is_ok()
+                && probe.generation == generation
+                && probe.at.elapsed() < Duration::from_secs(60)
+            {
                 return probe.clone();
             }
         }
@@ -205,7 +208,7 @@ mod tests {
         assert!(parse("<html>1.2.3.4</html>", 0).is_err());
         assert!(parse(&"x".repeat(65), 0).is_err());
         let mut cache = Cache::default();
-        let first = cache.query_with(0, 1, |_| Err("offline".into()));
+        let first = cache.query_with(0, 1, |_| Ok("198.51.100.7".parse().unwrap()));
         let second = cache.query_with(0, 1, |_| panic!("must not retry within 60 seconds"));
         assert_eq!(first.at, second.at);
         assert!(cache
@@ -217,6 +220,16 @@ mod tests {
             .query_with(0, 2, |_| Err("offline".into()))
             .result
             .is_err());
+    }
+    #[test]
+    fn failed_query_can_be_retried_immediately() {
+        let mut cache = Cache::default();
+        assert!(cache
+            .query_with(0, 1, |_| Err("offline".into()))
+            .result
+            .is_err());
+        let retry = cache.query_with(0, 1, |_| Ok("198.51.100.7".parse().unwrap()));
+        assert_eq!(retry.result.unwrap().to_string(), "198.51.100.7");
     }
     #[test]
     fn environment_precedence_system_fallback_and_invalid_config() {
