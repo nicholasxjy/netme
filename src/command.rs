@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub mod stream;
+
 pub const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
 pub fn run(program: &str, args: &[&str]) -> Result<String, String> {

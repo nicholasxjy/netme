@@ -16,7 +16,7 @@ jobs:
           components: rustfmt, clippy
       - name: Linux tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y iproute2
+        run: sudo apt-get update && sudo apt-get install -y iproute2 curl iputils-ping traceroute tcpdump python3
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
@@ -24,3 +24,7 @@ jobs:
         run: cargo test --locked live_loopback_smoke -- --ignored --nocapture
       - run: cargo build --locked
       - run: python3 tests/tty_smoke.py target/debug/netme
+      - name: Resource diagnostics loopback smoke (no capture privileges)
+        run: python3 tests/ping_smoke.py target/debug/netme
+      # Real packet capture is deliberately opt-in outside ordinary CI:
+      # NETME_CAPTURE_SMOKE=1 python3 tests/ping_smoke.py target/debug/netme

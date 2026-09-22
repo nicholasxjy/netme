@@ -2,6 +2,21 @@
 
 All notable changes to netme are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `netme ping <target>`: noninteractive, flushed stage-by-stage HTTP(S), TCP, UDP, ICMP and traceroute diagnostics with explicit proxy/DNS/observation boundaries.
+- Native HTTP CONNECT and SOCKS5 CONNECT/UDP ASSOCIATE, remote target DNS, authentication, no direct fallback, and address-family controls for local endpoints.
+- Verified curl-backed HTTP, bounded previews and streaming downloads, safe redirects, final-only/partial body files, sanitized headers/URLs and selected transfer metrics.
+- Optional bounded packet summaries and explicit 0600/no-overwrite PCAPNG recording, with packet timestamps, association limits and incomplete-record reporting.
+- Deadline/signal-aware subprocess groups, loopback/mock protocol and capture tests, and macOS/Linux CI tool setup.
+
+### Changed
+
+- Command dispatch now precedes TTY validation; monitoring options, public-IP confirmation/cache and existing proxy policy remain unchanged.
+- Shared proxy configuration discovery is reused without changing the monitor's existing proxy-format handling.
+
 ## [0.0.1] - 2026-09-20
 
 Initial release on crates.io.

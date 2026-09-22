@@ -2,6 +2,8 @@
 
 A network-monitoring TUI for macOS and Linux, inspired by btop: it uses the terminal background, thin borders, and compact, aligned columns, with blue for downloads and green for uploads. No filled GUI-style cards, simulated buttons, or special fonts are required.
 
+`netme ping <target>` also provides noninteractive, live resource-access diagnostics. It is separate from the monitor and does not enter the TUI.
+
 The interface content and monitoring features remain unchanged:
 
 - Top **DOWNLOAD / UPLOAD**: real-time transfer rates for the default network route.
@@ -66,6 +68,81 @@ A terminal size of **80×24** is recommended: wide layouts use a compact interfa
 | `p` | Query the External IP; confirm with `y` / Enter, cancel with `n` / Esc |
 | `q` / `Ctrl-C` | Quit |
 
+## Resource diagnostics: `netme ping`
+
+```sh
+netme ping example.com                         # HTTPS; uses configured proxy policy
+netme ping example.com:8443/path?key=value     # HTTPS with explicit port/path
+netme ping https://example.com --no-diagnose   # Skip auxiliary probes
+netme ping http://127.0.0.1:8000 --direct       # Explicitly bypass proxy configuration
+netme ping 'https://[::1]:8443/' --direct --cacert local-ca.pem
+netme ping tcp://localhost:9000 --direct       # Connect only; no application data
+netme ping tcp://localhost:9000 --direct --data 'hello'
+netme ping udp://localhost:9000 --direct --data-hex 010203
+netme ping udp://example.com:9000 --data '' --proxy socks5h://localhost:1080
+netme ping icmp://localhost --direct
+netme ping trace://localhost --direct --max-hops 5
+netme ping https://example.com --output response.bin
+netme ping https://example.com --capture       # Packet summaries only
+netme ping https://example.com --pcap trace.pcapng
+netme ping --help                             # No TTY or network required
+```
+
+**Unlike monitor startup, a ping command intentionally sends traffic.** By default it sends three ICMP echo probes and UDP traceroute probes to the preferred connection endpoint before accessing the resource. Disable these with `--no-diagnose`. Filtered, unavailable or unprivileged auxiliary probes produce warnings, not a failed resource result. Standalone `icmp://` and `trace://` operations use the diagnostic as their main result.
+
+### Dependencies and output
+
+HTTP(S) requires **curl 7.88 or newer**, with HTTP and HTTPS support. Auxiliary diagnostics use system `ping` and `traceroute` (`ping6`/`traceroute6` for IPv6 on macOS); capture requires `tcpdump`. macOS includes these tools. On Debian/Ubuntu:
+
+```sh
+sudo apt-get install curl iputils-ping traceroute tcpdump iproute2
+```
+
+The command never invokes sudo or changes capture permissions. Missing optional probe tools only warn; explicitly requested capture must pass its startup check before DNS/resource probes. Capture privileges must be arranged separately by the user.
+
+Output is flushed as work happens, with a sequence number, monotonic relative time, stage and redirect-hop number. It shows proxy selection, actual system DNS candidates in order, local route information, auxiliary probe replies/hops, resource connection/negotiation, request/response headers, body progress and final metrics. Plain text works in pipes, with `NO_COLOR`; `--ascii` escapes non-ASCII characters. Progress is limited to once per 500 ms.
+
+Only observed facts are reported. Ordinary socket/curl events are **not** synthetic TCP SYN/ACK packets. A probe to the preferred address is not proof of the resource's path; a different actual peer is identified. Redirects use fresh connections and do not repeat auxiliary probes. Curl timings are labelled cumulative/combined where proxy/TLS phases cannot be separated. Unknown route, certificate or backend fields remain unknown; no response return path is inferred.
+
+### Proxy and DNS policy
+
+Explicit `--proxy URL` or `--direct` takes precedence over the [monitor's discovery order](#public-ip-and-proxies). They are mutually exclusive. HTTP and SOCKS5 proxies support username/password authentication. **Both `socks5://` and `socks5h://` use proxy-side target DNS.** `NO_PROXY` never bypasses a configured proxy, PAC is not executed, and failures never fall back to direct access.
+
+With a proxy, only the **proxy endpoint** is locally resolved, routed and probed. SOCKS UDP relay addresses are resolved when necessary. Origin-side IPs, DNS timing and routes are unobservable unless the protocol reports them. `--ipv4` / `--ipv6` constrain local endpoint connections, not the target family behind a proxy. Standalone ICMP/traceroute cannot use these proxies: explicitly pass `--direct` when a proxy is configured. HTTP proxies cannot relay UDP.
+
+For direct HTTP, the actual system DNS result is passed to curl with `--resolve`, preserving Host, SNI and certificate validation names. Curl ignores curlrc and inherited proxy settings; dynamic configuration and credentials use stdin, not shell interpolation or child command-line arguments. Only recognized verbose events and selected metrics are displayed; raw verbose/JSON output is never forwarded.
+
+### Protocol behavior, limits and files
+
+- Bare domains, IPv4 and IPv6 default to HTTPS. IPv6 ports need brackets. IDNs are normalized. Invalid ports, unknown schemes, resource userinfo and IPv6 zone IDs are rejected before probes; HTTP fragments are not sent. Inapplicable or conflicting options are errors.
+- HTTP performs GET, verifies TLS (optional `--cacert`, no insecure switch), negotiates supported HTTP/2 for HTTPS, and does not enable HTTP/3 or browser subresources. It follows 301/302/303/307/308 at most 10 times; `--no-follow` disables this. Loops, unsafe protocols and HTTPS-to-HTTP downgrades are refused. HTTP 4xx/5xx bodies are still read, with a distinct application-failure result.
+- TCP without data stops after connection/proxy negotiation. `--data TEXT` or `--data-hex HEX` sends one payload and samples the first response segment, **not a complete application message**. Text has no added newline.
+- UDP requires explicit data (empty is allowed), sends exactly one datagram and waits for one response, without retries. Socket peer selection is **not a handshake**. Silence means **service state unknown**, not an open/closed port. SOCKS5 UDP keeps its control connection alive, validates encapsulation and refuses fragmentation. Raw input is bounded to 65,507 bytes; SOCKS UDP encapsulation must also fit that bound.
+
+| Limit | Default / option |
+| --- | --- |
+| Whole command | 60 s, `--timeout S` |
+| DNS/connection stage | 5 s, `--connect-timeout S`, bounded by total deadline |
+| ICMP | 3 probes, at most 5 s |
+| Traceroute | 30 hops (`--max-hops N`), one probe/hop, 1 s wait, 15 s total (`--trace-timeout S`) |
+| TCP response / UDP reply | 5 s, `--reply-timeout S` |
+| HTTP preview | 4 KiB, `--preview-bytes N`, at most 1 MiB |
+| Cumulative decoded HTTP body | 16 MiB, `--max-bytes N`; `0` removes only the byte limit |
+| HTTP headers | 64 KiB/block, 1 MiB total |
+| Associated capture | 100,000 packets; raw PCAPNG at most 100 MiB |
+
+Reaching the preview limit does **not** stop downloading. Text previews escape controls; binary previews use bounded hex. Metrics distinguish encoded received body bytes from decoded bytes. `--output FILE` saves only the final response body: work in progress and failed/truncated transfers remain `FILE.partial`, and completed bodies are published without overwriting existing files. No automatic resource retry is performed; unsuccessful pre-connection address candidates may be tried without resending a resource request.
+
+### Capture and sensitive information
+
+`--capture` displays associated packet metadata only: traditional DNS queries/answers, addresses/ports, TCP flags/sequence/ack/window, lengths and ICMP (errors use the quoted original IP packet). Capture starts before DNS, and endpoint sessions start before endpoint traffic. Packet timestamps are separate from the event's log-receipt time. Linux defaults to `any`; macOS defaults to `pktap,all` with RAW link type. `--interface NAME` chooses capture interfaces **only**, not request routing.
+
+Association is bounded by names, transactions and endpoints, **not reliable process attribution**: other processes using the same endpoint can appear. Capture does not decrypt TLS, reveal a proxy's remote path, or prove that missing DNS was cached or missing FIN indicates failure. Drops, parser/recording limits and capture failures mark the record incomplete; resource access can still finish.
+
+**`--pcap FILE` explicitly enables raw, unredacted PCAPNG storage, including original payloads.** It uses mode 0600, refuses existing files, and combines capture sessions with their link types/timestamps. Logs redact proxy userinfo, authorization/cookie/token/API-key headers and URL query values, and escape terminal/bidirectional controls. **Body previews, body files and raw packet files can still contain business secrets.** Do not share them without inspection. The committed localhost certificate/key under `tests/fixtures/` are public test material, never production credentials.
+
+Exit codes: `0` main operation succeeded; `1` definite network/proxy/TLS/HTTP/transfer failure; `2` arguments/configuration/required capability; `3` unknown or incomplete operation/recording. Auxiliary warnings do not change a successful resource result. Termination returns `128 + signal` (Ctrl-C: 130); a closed output pipe stops work quietly. Child process groups are terminated and reaped on completion, timeout, signals and errors.
+
 ## Public IP and Proxies
 
 Public IP queries require confirmation: no public internet requests are made at startup. Press `p` and confirm to query `api.ipify.org` / `api6.ipify.org` over HTTPS.
@@ -106,6 +183,10 @@ cargo test --locked
 cargo test --locked live_loopback_smoke -- --ignored --nocapture
 cargo build --locked
 python3 tests/tty_smoke.py target/debug/netme
+python3 tests/ping_local.py target/debug/netme  # Also run by cargo test; requires python3/curl
+python3 tests/ping_smoke.py target/debug/netme  # Real loopback auxiliary probes
+# Optional, only after arranging capture permissions (no automatic sudo):
+NETME_CAPTURE_SMOKE=1 python3 tests/ping_smoke.py target/debug/netme
 # Optional: live HTTPS query through a proxy; contacts ipify without printing the returned IP
 cargo test --locked live_public_ip_proxy_smoke -- --ignored --nocapture
 ```

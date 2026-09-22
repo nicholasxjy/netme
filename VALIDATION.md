@@ -1,6 +1,42 @@
 # 验证记录
 
-## 当前版本
+## `netme ping`（本轮验证：2026-09-22）
+
+环境：Darwin arm64，普通用户，Rust / Cargo 1.98.1，系统 curl 8.7.1（SecureTransport，HTTP/2）。本轮没有访问公网，没有自动提权或修改抓包权限。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| `cargo fmt --check` | 通过 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 通过，无警告 |
+| `cargo test --locked` | 29 个单元测试通过；2 个既有实时测试默认忽略；1 个集成测试通过（内部执行 38 个本地场景） |
+| `cargo test --locked live_loopback_smoke -- --ignored --nocapture` | 通过，真实本机接口与 TCP 回环计数 |
+| `cargo build --locked` | 通过 |
+| `python3 tests/tty_smoke.py target/debug/netme` | 8 个既有 PTY 场景全部通过，含终端恢复与信号退出 |
+| `python3 tests/ping_smoke.py target/debug/netme` | 真实回环 ICMP / traceroute 工具调用与 HTTP 访问通过；允许辅助诊断警告 |
+| 真实抓包权限烟测 | **未运行**；仅显式 `NETME_CAPTURE_SMOKE=1` 时执行，不自动 sudo |
+
+### 本轮覆盖
+
+- 非 TTY 帮助、参数错误提前拒绝、IPv6 / IDN 目标解析、协议适用性、查询值 / 代理凭证 / 敏感头脱敏与控制字符转义。
+- 本地 HTTP、受信任本地 HTTPS、自签名证书拒绝、HTTP CONNECT 407、SOCKS5 / SOCKS5h 认证及远端目标 DNS语义。
+- 本地不可解析的源站域名通过模拟代理成功；IPv4 SOCKS 代理接受 IPv6 目标；代理失败不直连，`NO_PROXY=*` 不绕过配置。
+- 原生 TCP 建连不发送额外应用数据、直接 TCP / CONNECT / SOCKS 数据采样、UDP 显式空数据 / 单次发送 / 无响应状态未知。
+- SOCKS5 UDP ASSOCIATE、通配中继地址替换、控制连接生命周期、返回解封装及分片拒绝。
+- 相对 / 跨源重定向、新连接、循环 / 次数 / 协议 / 用户信息限制、HTTPS 降级拒绝、4xx/5xx 正文、gzip / chunked / 二进制、预览后继续接收。
+- 字节上限、提前断流、最终正文与 `.partial`、文件拒绝覆盖；阶段事件在延迟正文完成之前实际输出。
+- SIGINT / SIGTERM、总期限、输出管道关闭；模拟 curl 派生子进程在超时后不再运行；大量 stdout/stderr 并行读取不死锁。
+- macOS/Linux ping/traceroute 与路由解析 fixture；RAW / loopback / Linux SLL / SLL2 有界报文解析、PCAP/PCAPNG 读写 fixture。
+- **模拟** tcpdump 验证权限失败先于访问、关联后的 TCP/ICMP 摘要不输出载荷、保留报文时间戳、0600 PCAPNG 保留原始载荷、丢包 / 恶意记录长度标记不完整且资源可继续。
+
+### 本轮边界
+
+- Linux CI 已扩展工具安装和回环烟测，但本轮未执行 Linux 实机 / 远端 CI；不能将 macOS 结果当作 Linux 验证。
+- 未运行真实权限抓包、真实公网、真实远端 SOCKS 服务或公网 IPv6；相关协议行为使用本地 mock / fixture 验证。
+- 没有声称覆盖全部 curl TLS 后端、HTTP/2 真实服务或所有异常网络排列；未知字段按实现显示为 unknown / unobservable。
+- 抓包关联不是进程隔离，不解密 TLS，也不能观察代理远端连接路径。正文与原始抓包文件可能包含业务秘密。
+- 默认测试需要 Python 3 与 curl >= 7.88；`tests/fixtures/localhost-*.pem` 是公开的本地测试证书 / 密钥，不得用于真实服务。
+
+## 既有监控版本（历史验证记录）
 
 界面已改为 btop 风格的原生 TUI：终端背景、细线框、紧凑对齐，无 GUI 色块 / 卡片 / 模拟按钮。保留下载 / 上传、硬件接口、链路信息、Internal / Router / External、滚动、固定和公网查询确认。
 

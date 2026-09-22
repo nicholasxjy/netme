@@ -27,36 +27,6 @@ pub struct Options {
     pub interval: u64,
     pub ascii: bool,
 }
-pub fn options(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, String> {
-    let mut args = args.into_iter();
-    let mut interval = 1;
-    let mut ascii = false;
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--interval" => {
-                interval = args
-                    .next()
-                    .ok_or("--interval requires an integer 1-60")?
-                    .parse()
-                    .map_err(|_| "--interval requires an integer 1-60")?;
-                if !(1..=60).contains(&interval) {
-                    return Err("--interval must be 1-60 seconds".into());
-                }
-            }
-            "--ascii" => ascii = true,
-            "--help" | "-h" => {
-                println!("netme — macOS/Linux network monitor\n\nUsage: netme [--interval <1-60>] [--ascii]\n       netme --help | --version\n\nUp/Down or j/k: scroll adapters; Home/End: first/last\nSpace: pin/unpin display; p: public IP (confirmation); q/Ctrl-C: quit\n\nOnly hardware adapters, download/upload and Internal > Router > External.\nNo sudo or public requests at startup. Linux requires iproute2; iw is optional.");
-                return Ok(None);
-            }
-            "--version" | "-V" => {
-                println!("netme {}", env!("CARGO_PKG_VERSION"));
-                return Ok(None);
-            }
-            _ => return Err(format!("unknown argument: {arg}; try --help")),
-        }
-    }
-    Ok(Some(Options { interval, ascii }))
-}
 
 #[derive(Clone, Default)]
 pub struct Data {
@@ -338,10 +308,7 @@ impl Drop for TerminalGuard {
     }
 }
 
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(options) = options(std::env::args().skip(1))? else {
-        return Ok(());
-    };
+pub fn run(options: Options) -> Result<(), Box<dyn std::error::Error>> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err("interactive TTY required; try netme --help".into());
     }
@@ -403,6 +370,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::monitor_options as options;
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
     }

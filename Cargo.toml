@@ -15,6 +15,10 @@ serde_json = "1"
 ureq = { version = "2.12", default-features = false, features = ["tls", "socks-proxy"] }
 signal-hook = "0.3"
 libc = "0.2"
+url = "2"
+pcap-file = "2"
+etherparse = "0.19"
+hickory-proto = { version = "0.25", default-features = false }
 
 [profile.release]
 lto = "thin"

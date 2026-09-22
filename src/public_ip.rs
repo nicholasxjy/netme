@@ -70,67 +70,20 @@ fn proxy(value: &str) -> Result<ureq::Proxy, String> {
     let value = value.trim().replacen("socks5h://", "socks5://", 1);
     ureq::Proxy::new(value).map_err(|_| "invalid or unsupported proxy configuration".into())
 }
+#[cfg(test)]
 fn env_proxy(lookup: impl Fn(&str) -> Option<String>) -> Option<Result<ureq::Proxy, String>> {
-    [
-        "https_proxy",
-        "HTTPS_PROXY",
-        "all_proxy",
-        "ALL_PROXY",
-        "http_proxy",
-        "HTTP_PROXY",
-    ]
-    .into_iter()
-    .find_map(|key| {
-        lookup(key)
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| proxy(&s))
-    })
+    crate::proxy::environment(lookup).map(|c| proxy(&c.value))
 }
 fn configured_proxy() -> Result<Option<ureq::Proxy>, String> {
-    if let Some(proxy) = env_proxy(|name| std::env::var(name).ok()) {
-        return proxy.map(Some);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let settings = crate::command::run("/usr/sbin/scutil", &["--proxy"])
-            .map_err(|_| "cannot read system proxy configuration")?;
-        system_proxy(&settings)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Ok(None)
-    }
+    crate::proxy::discover()?
+        .map(|c| proxy(&c.value))
+        .transpose()
 }
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 fn system_proxy(settings: &str) -> Result<Option<ureq::Proxy>, String> {
-    let field = |name: &str| {
-        settings
-            .lines()
-            // Only the effective global dictionary, not nested scoped service settings.
-            .filter(|line| line.starts_with("  ") && !line.starts_with("    "))
-            .filter_map(|line| line.trim().split_once(" : "))
-            .find_map(|(key, value)| (key == name).then_some(value))
-    };
-    for (prefix, scheme) in [("HTTPS", "http"), ("HTTP", "http"), ("SOCKS", "socks5")] {
-        if field(&format!("{prefix}Enable")) != Some("1") {
-            continue;
-        }
-        let host = field(&format!("{prefix}Proxy"))
-            .filter(|s| !s.is_empty() && !s.contains(['/', '@', ' ', '\t']))
-            .ok_or("invalid system proxy host")?;
-        let port = field(&format!("{prefix}Port"))
-            .and_then(|p| p.parse::<u16>().ok())
-            .filter(|p| *p != 0)
-            .ok_or("invalid system proxy port")?;
-        return proxy(&format!("{scheme}://{host}:{port}")).map(Some);
-    }
-    if field("ProxyAutoConfigEnable") == Some("1") || field("ProxyAutoDiscoveryEnable") == Some("1")
-    {
-        return Err(
-            "automatic proxy configuration requires an explicit HTTPS_PROXY or ALL_PROXY".into(),
-        );
-    }
-    Ok(None)
+    crate::proxy::system(settings)?
+        .map(|c| proxy(&c.value))
+        .transpose()
 }
 
 fn fetch_from(url: &str, family: usize, proxy: Option<&ureq::Proxy>) -> Result<IpAddr, String> {
